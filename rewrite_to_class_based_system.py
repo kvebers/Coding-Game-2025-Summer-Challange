@@ -144,17 +144,22 @@ class Sniper(Agent):
 
     def calculate_movement(self, enemys, game):
         enemy = self.find_closest_enemy(enemys, game)
+        g_blocked_postions.remove((self.x, self.y))
         if enemy == None:
+            self.new_x = self.x
+            self.new_y = self.y
             self.command_to_execute += f"{self.agent_id}; MOVE {self.x} {self.y}"
         elif (manhatan_distance(self.x, self.y, enemy.x, enemy.y) > enemy.optimal_range * 2 + 2):
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
             self.new_x = x
             self.new_y = y
-            g_blocked_postions.append((x, y))
             self.command_to_execute += f"{self.agent_id}; MOVE {x} {y}"
         else:
             (x, y) = self.retreat(enemy, game)
+            self.new_x = x
+            self.new_y = y
             self.command_to_execute += f"{self.agent_id}; MOVE {x} {y}"
+        g_blocked_postions.append((self.new_x, self.new_x))
 
 class Bomber(Agent):
     def __init__(self, agent_id, player, shoot_cooldown, optimal_range, soaking_power, splash_bombs):
@@ -246,13 +251,15 @@ while True:
         del agents[agent_id]
     enemy_agents = []
     my_agents = []
+    g_blocked_postions.clear()
     for agent_id, agent in agents.items():
         if (agent.player == my_id):
             my_agents.append(agent)
+            g_blocked_postions.append((agents[agent_id].x, agents[agent_id].y))
         else:
             enemy_agents.append(agent)
     my_agent_count = int(input())  # Number of alive agents controlled by you
-    g_blocked_postions.clear()
+    my_agents.sort(key=lambda agent: agent.y)
     for i in range(my_agent_count):
         start_time = time.time()
         my_agents[i].calculate_movement(enemy_agents, game)
