@@ -204,7 +204,7 @@ class Bomber(Agent):
 
     def estimate_attack_pattern(self, enemys, game):
         enemy = self.find_closest_enemy(enemys, game)
-        if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2 + 1:
+        if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2 + 2:
             self.command_to_execute += f"; SHOOT {enemy.agent_id}"
         elif (enemy != None and self.cooldown != 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= 4 and self.splash_bombs > 0):
             self.command_to_execute += f"; THROW {enemy.x} {enemy.y}"
