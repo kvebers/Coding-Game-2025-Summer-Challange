@@ -104,6 +104,36 @@ class Agent():
     def calculate_movement(self, enemys, game):
         self.command_to_execute += f"{self.agent_id}; MOVE {self.new_x} {self.new_y}"
 
+
+    def enemy_map(self, enemys, game):
+        possible_enemy_locations = {}
+        for enemy in enemys:
+            possible_enemy_locations[(enemy.x, enemy.y)] = possible_enemy_locations.get((enemy.x, enemy.y), 0) + 10
+            directions = []
+            if enemy.x > 0 and game.game_map[enemy.y][enemy.x - 1].tile_type == 0:
+                directions.append((-1, 0))
+            if enemy.x < game.width - 1 and game.game_map[enemy.y][enemy.x + 1].tile_type == 0:
+                directions.append((1, 0))
+            if enemy.y > 0 and game.game_map[enemy.y - 1][enemy.x].tile_type == 0:
+                directions.append((0, -1))
+            if enemy.y < game.height - 1 and game.game_map[enemy.y + 1][enemy.x].tile_type == 0:
+                directions.append((0, 1))
+            for direction in directions:
+                possible_enemy_locations[(enemy.x + direction[0], enemy.y + direction[1])] = possible_enemy_locations.get((enemy.x + direction[0], enemy.y + direction[1]), 0) + (5 - len(directions)) * 3
+
+
+
+    def find_bombing_position(self, enemys, game):
+        enemy_map = self.enemy_map(enemys, game)
+        range_of_bombs = 4
+        for dx in range(-range_of_bombs, range_of_bombs + 1):
+            for dy in range(-range_of_bombs, range_of_bombs + 1):
+                nx, ny = self.x + dx, self.y + dy
+                if not (0 <= nx < game.width and 0 <= ny < game.height):
+                    continue
+        
+
+
     def execute_command(self):
         print(self.command_to_execute)
 
@@ -126,6 +156,8 @@ class Agent():
         previous_pos = (self.x, self.y)
         for dx, dy in C_DIRECTIONS:
             nx, ny = self.x + dx, self.y + dy
+            if (nx, ny) in g_blocked_postions:
+                continue
             if (0 <= nx < game.width and 0 <= ny < game.height):
                 if (game.game_map[ny][nx].tile_type == 0):
                     new = manhatan_distance(nx, ny, enemy.x, enemy.y)
@@ -183,7 +215,7 @@ class Sniper(Agent):
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
             self.new_x = x
             self.new_y = y
-        elif (manhatan_distance(self.x, self.y, enemy.x, enemy.y) > enemy.optimal_range * 2 + 2):
+        elif (manhatan_distance(self.x, self.y, enemy.x, enemy.y) > self.optimal_range + 1):
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
             self.new_x = x
             self.new_y = y
@@ -241,7 +273,11 @@ class RifleMan(Agent):
     def calculate_movement(self, enemys, game):
         g_blocked_postions.remove((self.x, self.y))
         enemy = self.find_closest_enemy(enemys, game)
-        if enemy != None and  manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= 4:
+        if (enemy != None and self.optimal_range > enemy.optimal_range and manhatan_distance(self.x, self.y, enemy.x, enemy.y) < 7):
+            (x, y) = self.retreat(enemy, game)
+            self.new_x = x
+            self.new_y = y
+        elif enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= 4:
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
             self.new_x = x
             self.new_y = y
