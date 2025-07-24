@@ -7,7 +7,7 @@ import time
 
 C_DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 g_blocked_postions = []
-
+tile_list = []
 
 def manhatan_distance(x1, y1, x2, y2):
     return abs(x1 - x2) + abs(y1 - y2)
@@ -17,6 +17,15 @@ class Map():
         self.game_map = [[Tiles(0, 0, 0) for _ in range(width)] for _ in range(height)]
         self.width = width
         self.height = height
+        self.covers = []
+
+
+    def generate_covers(self):
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.game_map[y][x].tile_type != 0:
+                    self.covers.append(self.game_map[y][x])                    
+
 
     def valid_tile(self, x, y):
         if not (0 <= x < self.width and 0 <= y < self.height):
@@ -111,6 +120,41 @@ class Agent():
                 enemy_to_return = enemy
                 current_man_dist = man_dist
         return enemy_to_return
+    
+    def retreat(self, enemy, game):
+        previous_distance = manhatan_distance(self.x, self.y, enemy.x, enemy.y)
+        previous_pos = (self.x, self.y)
+        for dx, dy in C_DIRECTIONS:
+            nx, ny = self.x + dx, self.y + dy
+            if (0 <= nx < game.width and 0 <= ny < game.height):
+                if (game.game_map[ny][nx].tile_type == 0):
+                    new = manhatan_distance(nx, ny, enemy.x, enemy.y)
+                    if (new > previous_distance):
+                        previous_pos = (nx, ny)
+                        previous_distance = new
+        return previous_pos
+
+    def find_cover(self, enemy, game):
+        dx, dy = self.x - enemy.x, self.y - enemy.y
+        dir_x, dir_y = 1, 1
+        if (dx <= 0):
+            dir_x = -1
+        if (dy <= 0):
+            dir_y = -1
+        cover_location = (0, dir_x)
+        if (abs(dx) < abs(dy)):
+            cover_location = (dir_y, 0)
+        minimum_distance = 1000
+        tile_to_cover = None
+        for tile in game.covers:
+            if (0 <= tile.y + cover_location[0] < game.height and 0 <= tile.x + cover_location[1] < game.width and game.game_map[tile.y + cover_location[0]][tile.x + cover_location[1]].tile_type == 0):
+                new = manhatan_distance(self.x, tile.x, self.y, tile.y) 
+                if (new <minimum_distance):
+                    minimum_distance = new
+                    tile_to_cover = tile
+        if (tile_to_cover == None):
+            return enemy.x, enemy.y
+        return tile_to_cover.x + cover_location[1], tile_to_cover.y + cover_location[0]
 
 class Sniper(Agent):
     def __init__(self, agent_id, player, shoot_cooldown, optimal_range, soaking_power, splash_bombs):
@@ -128,19 +172,6 @@ class Sniper(Agent):
         else:
             self.command_to_execute += f"; HUNKER_DOWN"
 
-    def retreat(self, enemy, game):
-        previous_distance = manhatan_distance(self.x, self.y, enemy.x, enemy.y)
-        previous_pos = (self.x, self.y)
-        for dx, dy in C_DIRECTIONS:
-            nx, ny = self.x + dx, self.y + dy
-            if (0 <= nx < game.width and 0 <= ny < game.height):
-                if (game.game_map[ny][nx].tile_type == 0):
-                    new = manhatan_distance(nx, ny, enemy.x, enemy.y)
-                    if (new > previous_distance):
-                        previous_pos = (nx, ny)
-                        previous_distance = new
-        return previous_pos
-
 
     def calculate_movement(self, enemys, game):
         enemy = self.find_closest_enemy(enemys, game)
@@ -148,17 +179,19 @@ class Sniper(Agent):
         if enemy == None:
             self.new_x = self.x
             self.new_y = self.y
-            self.command_to_execute += f"{self.agent_id}; MOVE {self.x} {self.y}"
+        elif (enemy.optimal_range >= self.optimal_range):
+            (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
+            self.new_x = x
+            self.new_y = y
         elif (manhatan_distance(self.x, self.y, enemy.x, enemy.y) > enemy.optimal_range * 2 + 2):
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
             self.new_x = x
             self.new_y = y
-            self.command_to_execute += f"{self.agent_id}; MOVE {x} {y}"
         else:
             (x, y) = self.retreat(enemy, game)
             self.new_x = x
             self.new_y = y
-            self.command_to_execute += f"{self.agent_id}; MOVE {x} {y}"
+        self.command_to_execute += f"{self.agent_id}; MOVE {self.new_x} {self.new_y}"
         g_blocked_postions.append((self.new_x, self.new_x))
 
 class Bomber(Agent):
@@ -171,13 +204,31 @@ class Bomber(Agent):
 
     def estimate_attack_pattern(self, enemys, game):
         enemy = self.find_closest_enemy(enemys, game)
-        if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2:
+        if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2 + 1:
             self.command_to_execute += f"; SHOOT {enemy.agent_id}"
+        elif (enemy != None and self.cooldown != 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= 4 and self.splash_bombs > 0):
+            self.command_to_execute += f"; THROW {enemy.x} {enemy.y}"
         else:
             self.command_to_execute += f"; HUNKER_DOWN"
 
     def calculate_movement(self, enemys, game):
-        self.command_to_execute += f"{self.agent_id}; MOVE {game.width // 2} {game.height // 2}"
+        enemy = self.find_closest_enemy(enemys, game)
+        g_blocked_postions.remove((self.x, self.y))
+        if enemy != None and  manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) > 3:
+            (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
+            self.new_x = x
+            self.new_y = y
+        elif (enemy != None and manhatan_distance(self.x, self.y, enemy.x, enemy.y) <= self.optimal_range):
+            (x, y) = self.retreat(enemy, game)
+            self.new_x = x
+            self.new_y = y
+        else:
+            (x, y) = game.bfs(self.x, self.y, game.width // 2, game.height // 2)
+            self.new_x = x
+            self.new_y = y
+        self.command_to_execute += f"{self.agent_id}; MOVE {self.new_x} {self.new_y}"
+        g_blocked_postions.append((self.new_x, self.new_y))
+
 
 class RifleMan(Agent):
     def __init__(self, agent_id, player, shoot_cooldown, optimal_range, soaking_power, splash_bombs):
@@ -188,12 +239,29 @@ class RifleMan(Agent):
         self.command_to_execute += f";MESSAGE {message} {time:.2f} ms"
 
     def calculate_movement(self, enemys, game):
-        self.command_to_execute += f"{self.agent_id}; MOVE {game.width // 2} {game.height // 2}"
+        g_blocked_postions.remove((self.x, self.y))
+        enemy = self.find_closest_enemy(enemys, game)
+        if enemy != None and  manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= 4:
+            (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)
+            self.new_x = x
+            self.new_y = y
+        elif (enemy != None and manhatan_distance(self.x, self.y, enemy.x, enemy.y) < self.optimal_range):
+            (x, y) = self.retreat(enemy, game)
+            self.new_x = x
+            self.new_y = y
+        else:
+            (x, y) = game.bfs(self.x, self.y, game.width // 2, game.height // 2)
+            self.new_x = x
+            self.new_y = y
+        g_blocked_postions.append((self.new_x, self.new_y))
+        self.command_to_execute += f"{self.agent_id}; MOVE {self.new_x} {self.new_y}"
 
     def estimate_attack_pattern(self, enemys, game):
         enemy = self.find_closest_enemy(enemys, game)
-        if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2:
+        if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2 + 1:
             self.command_to_execute += f"; SHOOT {enemy.agent_id}"
+        elif (enemy != None and self.cooldown != 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= 4 and self.splash_bombs > 0):
+            self.command_to_execute += f"; THROW {enemy.x} {enemy.y}"
         else:
             self.command_to_execute += f"; HUNKER_DOWN"
 
@@ -235,6 +303,8 @@ for i in range(height):
         game.game_map[y][x].x = x
         game.game_map[y][x].y = y
 
+game.generate_covers()
+
 # game loop
 while True:
     agent_count = int(input())  # Total number of agents still in the game
@@ -259,13 +329,12 @@ while True:
         else:
             enemy_agents.append(agent)
     my_agent_count = int(input())  # Number of alive agents controlled by you
-    my_agents.sort(key=lambda agent: agent.y)
     for i in range(my_agent_count):
         start_time = time.time()
         my_agents[i].calculate_movement(enemy_agents, game)
         my_agents[i].estimate_attack_pattern(enemy_agents, game)
         end_time = time.time()
-        delta_time = (end_time - start_time)*1000
+        delta_time = (end_time - start_time) * 1000
         my_agents[i].append_message(delta_time)
         my_agents[i].execute_command()
         # Write an action using print
