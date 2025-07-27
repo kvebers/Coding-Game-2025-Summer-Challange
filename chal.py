@@ -127,8 +127,8 @@ class Agent():
         prot = 0
         for enemy in enemys:
             distance = manhatan_distance(possibility[0], possibility[1], enemy.x, enemy.y)
-            if (enemy.splash_bombs > 0 and distance <= 7):
-                max_dmg_taken += 30
+            if (enemy.splash_bombs > 0 and distance <= 7 and self.splash_bombs > 0):
+                max_dmg_taken += 60 - self.splash_bombs * 5 - distance * 5
             else:
                 protection_score = game.protected_or_not_protected(possibility[0], possibility[1], enemy.x, enemy.y)
                 prot += protection_score
@@ -142,8 +142,8 @@ class Agent():
         max_dmg = 0
         for enemy in enemys:
             distance = manhatan_distance(possibility[0], possibility[1], enemy.x, enemy.y)
-            if (self.splash_bombs > 0 and distance <= 4):
-                return 30
+            if (self.splash_bombs > 0 and distance <= 5):
+                max_dmg += 30
             else:
                 protection_score = game.protected_or_not_protected(enemy.x, enemy.y, possibility[0], possibility[1])
                 if (distance <= self.optimal_range):
@@ -204,6 +204,8 @@ class Agent():
                 at_least_1_enemy_will_be_hit = 0
                 side_damage = 0
                 for enemy in enemys:
+                    if ((enemy.wetness >= 80 and enemy.splash_bombs < 0) or enemy.wetness >= 90):
+                        continue
                     all_covered = True
                     side_attack = 0
                     for (x, y) in enemy.possible_moves:
@@ -213,6 +215,7 @@ class Agent():
                             all_covered = False
                     if (all_covered == True):
                         at_least_1_enemy_will_be_hit += 1
+                        enemy.wetness += 30
                     else:
                         side_damage += side_attack / len(enemy.possible_moves)
                 if (at_least_1_enemy_will_be_hit > 0):
@@ -243,14 +246,23 @@ class Agent():
         closest_enemy = None
         closest_dist = 10000
         for enemy in enemys:
+            prot = game.protected_or_not_protected(enemy.x, enemy.y, self.new_x, self.new_y)
             man_dist = manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y)
+            dmg = 0
             if (man_dist < closest_dist):
                 closest_enemy = enemy
                 closest_dist = man_dist
-            if (man_dist < self.optimal_range * 2 - 1):
-                enemies_in_range.append(enemy)
-        if enemies_in_range:
-            return max(enemies_in_range, key=lambda e: e.wetness)
+            if (man_dist <= self.optimal_range):
+                dmg = prot * self.soaking_power
+            elif (man_dist <= self.optimal_range * 2):
+                dmg = prot * self.soaking_power * 0.5
+            if (dmg > 0):
+                print(f"{enemy.agent_id} {dmg}", file=sys.stderr, flush=True)
+                enemies_in_range.append((enemy, dmg))
+            if enemies_in_range:
+                enemies_in_range.sort(key=lambda e: (e[1], e[0].wetness), reverse=True)
+                best_enemy = enemies_in_range[0][0]
+                return best_enemy
         return closest_enemy
 
 class Sniper(Agent):
@@ -266,6 +278,7 @@ class Sniper(Agent):
         enemy = self.dps_find_closest_enemy(enemys, game)
         if enemy != None and self.cooldown == 0 and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) <= self.optimal_range * 2:
             self.command_to_execute += f"; SHOOT {enemy.agent_id}"
+            enemy.wetness += self.soaking_power
         else:
             self.command_to_execute += f"; HUNKER_DOWN"
 
@@ -274,7 +287,7 @@ class Sniper(Agent):
         enemy = self.find_closest_enemy(enemys, game)
         g_blocked_positions.remove((self.x, self.y))
         pos, score = self.explore_best_move(enemys, game)
-        if (enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= self.optimal_range + 2 or G_ADVANCE):
+        if (enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= 9 or G_ADVANCE):
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)          
             self.new_x = x
             self.new_y = y
@@ -311,7 +324,7 @@ class Bomber(Agent):
         enemy = self.find_closest_enemy(enemys, game)
         g_blocked_positions.remove((self.x, self.y))
         pos, score = self.explore_best_move(enemys, game)
-        if (enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= self.optimal_range * 3 or G_ADVANCE):            
+        if (enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= 7 or G_ADVANCE):            
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)          
             self.new_x = x
             self.new_y = y
@@ -417,7 +430,7 @@ while True:
     enemy_agents = []
     my_agents = []
     g_blocked_positions.clear()
-
+    health_diffrence = 0
     for agent_id, agent in agents.items():
         agent.create_possible_moves(game)
         if (agent.player == my_id):
@@ -425,9 +438,9 @@ while True:
             g_blocked_positions.append((agents[agent_id].x, agents[agent_id].y))
         else:
             enemy_agents.append(agent)
-    if (turn >= game.width + game.height // 2):
+    if (turn >= game.width + game.height):
         G_ADVANCE = True
-    if len(my_agents) > len(enemy_agents) and len(my_agents) == 2:
+    if (len(enemy_agents) < len(my_agents) and len(my_agents) == 2):
         G_ADVANCE = True
     my_agent_count = int(input())  # Number of alive agents controlled by you
     for i in range(my_agent_count):
