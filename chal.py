@@ -200,6 +200,7 @@ class Agent():
                         break
                 if continue_val:
                     continue
+
                 at_least_1_enemy_will_be_hit = 0
                 side_damage = 0
                 for enemy in enemys:
@@ -239,18 +240,18 @@ class Agent():
 
     def dps_find_closest_enemy(self, enemys, game):
         enemies_in_range = []
+        closest_enemy = None
+        closest_dist = 10000
         for enemy in enemys:
-            protection = game.protected_or_not_protected(enemy.x, enemy.y, self.new_x, self.new_y)
             man_dist = manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y)
-            dmg = 0
-            if (man_dist <= self.optimal_range):
-                dmg = protection * self.soaking_power
-            elif (man_dist < self.optimal_range * 2):
-                dmg = protection * self.soaking_power * 0.5
-            enemies_in_range.append((enemy, dmg))
-        enemies_in_range.sort(key=lambda x: x[1], reverse=True)
-        return enemies_in_range[0][0] if enemies_in_range else None
-
+            if (man_dist < closest_dist):
+                closest_enemy = enemy
+                closest_dist = man_dist
+            if (man_dist < self.optimal_range * 2 - 1):
+                enemies_in_range.append(enemy)
+        if enemies_in_range:
+            return max(enemies_in_range, key=lambda e: e.wetness)
+        return closest_enemy
 
 class Sniper(Agent):
     def __init__(self, agent_id, player, shoot_cooldown, optimal_range, soaking_power, splash_bombs):
@@ -310,7 +311,7 @@ class Bomber(Agent):
         enemy = self.find_closest_enemy(enemys, game)
         g_blocked_positions.remove((self.x, self.y))
         pos, score = self.explore_best_move(enemys, game)
-        if (enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= 7 or G_ADVANCE):            
+        if (enemy != None and manhatan_distance(self.new_x, self.new_y, enemy.x, enemy.y) >= self.optimal_range * 3 or G_ADVANCE):            
             (x, y) = game.bfs(self.x, self.y, enemy.x, enemy.y)          
             self.new_x = x
             self.new_y = y
@@ -425,6 +426,8 @@ while True:
         else:
             enemy_agents.append(agent)
     if (turn >= game.width + game.height // 2):
+        G_ADVANCE = True
+    if len(my_agents) > len(enemy_agents) and len(my_agents) == 2:
         G_ADVANCE = True
     my_agent_count = int(input())  # Number of alive agents controlled by you
     for i in range(my_agent_count):
